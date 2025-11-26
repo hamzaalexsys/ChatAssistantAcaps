@@ -1,0 +1,26 @@
+# Backend API Dependencies
+
+# FastAPI Framework
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+python-multipart==0.0.9
+pydantic==2.6.1
+pydantic-settings==2.2.1
+
+# OpenAI Client (for vLLM)
+openai==1.12.0
+
+# Qdrant Client
+qdrant-client==1.7.3
+
+# Embeddings
+sentence-transformers==2.3.1
+
+# Guardrails
+nemoguardrails==0.7.1
+
+# Utilities
+python-slugify==8.0.4
+python-dotenv==1.0.1
+httpx==0.26.0
+

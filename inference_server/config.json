@@ -1,0 +1,22 @@
+{
+    "model": {
+        "name": "Qwen/Qwen2.5-7B-Instruct",
+        "backup": "mistralai/Mistral-Nemo-12B-Instruct",
+        "dtype": "float16",
+        "max_model_len": 8192,
+        "gpu_memory_utilization": 0.85
+    },
+    "server": {
+        "host": "0.0.0.0",
+        "port": 8000,
+        "api_key": "secret"
+    },
+    "generation": {
+        "temperature": 0,
+        "top_p": 1.0,
+        "max_tokens": 1024,
+        "stop_sequences": ["</s>", "[/INST]"]
+    },
+    "system_prompt": "You are a reference machine for ACAPS internal documentation. You ONLY answer based on the provided context. If the answer is not in the context, say 'I cannot find this information in the available documents.' Never make up information."
+}
+

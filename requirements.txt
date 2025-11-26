@@ -1,0 +1,42 @@
+# Atlas-RAG Dependencies
+# Core Framework
+fastapi>=0.109.0,<0.115.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+pydantic>=2.6.0
+pydantic-settings>=2.2.0
+
+# Vector Database
+qdrant-client>=1.7.0
+
+# Embeddings & ML
+sentence-transformers>=2.3.0
+transformers>=4.37.0
+
+# OpenAI Client (for vLLM)
+openai>=1.12.0
+
+# Markdown Processing
+markdown>=3.5.0
+python-frontmatter>=1.1.0
+beautifulsoup4>=4.12.0
+
+# Utilities
+python-slugify>=8.0.0
+python-dotenv>=1.0.0
+httpx>=0.26.0
+aiofiles>=23.2.0
+numpy>=1.26.0
+
+# File Watcher
+watchdog>=4.0.0
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+
+# Development
+black>=24.1.0
+isort>=5.13.0
+mypy>=1.8.0

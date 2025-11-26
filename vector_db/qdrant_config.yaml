@@ -1,0 +1,50 @@
+# Qdrant Configuration for Atlas-RAG
+# Production-ready settings
+
+log_level: INFO
+
+storage:
+  # Storage path for data persistence
+  storage_path: /qdrant/storage
+  
+  # Snapshots configuration
+  snapshots_path: /qdrant/snapshots
+  
+  # Performance settings
+  optimizers:
+    deleted_threshold: 0.2
+    vacuum_min_vector_number: 1000
+    default_segment_number: 0
+    max_segment_size_kb: null
+    memmap_threshold_kb: null
+    indexing_threshold_kb: 20000
+    flush_interval_sec: 5
+    max_optimization_threads: 1
+
+  # WAL configuration for durability
+  wal:
+    wal_capacity_mb: 32
+    wal_segments_ahead: 0
+
+service:
+  # API settings
+  max_request_size_mb: 32
+  max_workers: 0  # 0 = auto
+  
+  # Enable gRPC
+  grpc_port: 6334
+  enable_tls: false
+
+# Collection defaults
+collection:
+  vectors:
+    size: 1024
+    distance: Cosine
+  
+  # Quantization for memory optimization (optional)
+  # quantization_config:
+  #   scalar:
+  #     type: int8
+  #     quantile: 0.99
+  #     always_ram: true
+
