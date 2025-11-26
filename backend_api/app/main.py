@@ -1,6 +1,6 @@
 """
-Main FastAPI Application for Atlas-RAG
-API endpoints for chat, health, and administration.
+Main FastAPI Application for Atlas-Hyperion v3.0
+API endpoints for chat, health, metrics, and administration.
 """
 import logging
 import uuid
@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .config import get_settings, Settings
 from .models import (
@@ -21,6 +21,7 @@ from .models import (
 )
 from .engine import RAGEngine, get_engine
 from .guardrails import get_guardrails, Guardrails, BlockReason
+from .telemetry import Telemetry, get_telemetry
 
 # Configure logging
 logging.basicConfig(
@@ -37,19 +38,27 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     """Lifecycle manager for startup and shutdown events."""
     # Startup
-    logger.info("Atlas-RAG API starting up...")
+    logger.info("Atlas-Hyperion v3.0 API starting up...")
     logger.info(f"Debug mode: {settings.debug}")
     logger.info(f"Guardrails enabled: {settings.enable_guardrails}")
+    logger.info(f"Cache enabled: {settings.cache_enabled}")
+    logger.info(f"NLI enabled: {settings.nli_enabled}")
+    
+    # Initialize telemetry
+    telemetry = get_telemetry(enabled=True)
+    logger.info("Telemetry initialized")
+    
     yield
+    
     # Shutdown
-    logger.info("Atlas-RAG API shutting down...")
+    logger.info("Atlas-Hyperion v3.0 API shutting down...")
 
 
 # Create FastAPI app
 app = FastAPI(
-    title="Atlas-RAG API",
-    description="RAG-based chatbot API for ACAPS internal documentation",
-    version="1.0.0",
+    title="Atlas-Hyperion v3.0 API",
+    description="Cache-Reason-Verify RAG system for ACAPS internal documentation",
+    version="3.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan
@@ -75,8 +84,15 @@ def get_guardrails_instance() -> Guardrails:
     """Get guardrails instance."""
     return get_guardrails(
         enabled=settings.enable_guardrails,
-        confidence_threshold=settings.similarity_threshold
+        confidence_threshold=settings.similarity_threshold,
+        enable_nli=settings.nli_enabled,
+        use_mock=settings.debug
     )
+
+
+def get_telemetry_instance() -> Telemetry:
+    """Get telemetry instance."""
+    return get_telemetry(enabled=True)
 
 
 # Exception handlers
@@ -134,17 +150,21 @@ async def health_check(engine: RAGEngine = Depends(get_rag_engine)):
 async def chat(
     request: QueryRequest,
     engine: RAGEngine = Depends(get_rag_engine),
-    guardrails: Guardrails = Depends(get_guardrails_instance)
+    guardrails: Guardrails = Depends(get_guardrails_instance),
+    telemetry: Telemetry = Depends(get_telemetry_instance)
 ):
     """
-    Process a chat query and return an answer with citations.
+    Process a chat query through Atlas-Hyperion v3.0 pipeline.
     
-    The endpoint:
-    1. Validates input through guardrails
-    2. Retrieves relevant documents
-    3. Generates an answer using the LLM
-    4. Validates output through guardrails
-    5. Returns answer with source citations
+    Flow:
+    1. Input guardrails validation
+    2. Semantic cache check (L1/L2)
+    3. Agentic planner decides retrieval strategy
+    4. Graph-enhanced retrieval if needed
+    5. LLM generation
+    6. 3-tier output verification (Pattern + Suspicion + NLI)
+    7. Response caching
+    8. Telemetry logging
     """
     conversation_id = request.conversation_id or str(uuid.uuid4())
     
@@ -162,28 +182,53 @@ async def chat(
             metadata={"blocked": True, "reason": input_check.blocked_reason.value}
         )
     
-    # Step 2: Process through RAG engine
+    # Step 2: Process through RAG engine (includes cache, planner, graph search)
     try:
         rag_response = engine.query(request.question)
     except Exception as e:
         logger.error(f"[{conversation_id}] RAG engine error: {e}")
+        telemetry.log_error(str(e), {"conversation_id": conversation_id})
         raise HTTPException(status_code=500, detail="Error processing query")
     
-    # Step 3: Output guardrails
+    # Step 3: Output guardrails with 3-tier verification
     output_check = guardrails.check_output(
         response=rag_response.answer,
         context=rag_response.context_used,
-        retrieval_score=rag_response.confidence
+        retrieval_score=rag_response.confidence,
+        run_nli=not rag_response.cache_hit  # Skip NLI for cached responses
     )
+    
+    verification_passed = not output_check.should_block
     
     if output_check.should_block:
         logger.warning(f"[{conversation_id}] Output blocked: {output_check.blocked_reason}")
+        
+        # Log blocked query
+        telemetry.log_query(
+            query=request.question,
+            retrieval_ids=[c.title for c in rag_response.citations],
+            retrieval_scores=[c.score for c in rag_response.citations],
+            answer=guardrails.get_blocked_response(output_check.blocked_reason),
+            confidence=output_check.confidence,
+            latency_ms=rag_response.latency_ms,
+            cache_hit=rag_response.cache_hit,
+            cache_level=rag_response.cache_level,
+            planner_action=rag_response.planner_action,
+            verification_passed=False,
+            verification_details=output_check.verification_details,
+            session_id=conversation_id
+        )
+        
         return QueryResponse(
             answer=guardrails.get_blocked_response(output_check.blocked_reason),
             citations=[],
             confidence=output_check.confidence,
             conversation_id=conversation_id,
-            metadata={"blocked": True, "reason": output_check.blocked_reason.value}
+            metadata={
+                "blocked": True, 
+                "reason": output_check.blocked_reason.value,
+                "tier_results": output_check.tier_results
+            }
         )
     
     # Step 4: Format response
@@ -197,14 +242,40 @@ async def chat(
         for c in rag_response.citations
     ]
     
-    logger.info(f"[{conversation_id}] Response generated with {len(citations)} citations")
+    # Step 5: Log to telemetry
+    telemetry.log_query(
+        query=request.question,
+        retrieval_ids=[c.title for c in rag_response.citations],
+        retrieval_scores=[c.score for c in rag_response.citations],
+        answer=rag_response.answer,
+        confidence=rag_response.confidence,
+        latency_ms=rag_response.latency_ms,
+        cache_hit=rag_response.cache_hit,
+        cache_level=rag_response.cache_level,
+        planner_action=rag_response.planner_action,
+        verification_passed=verification_passed,
+        verification_details=output_check.verification_details,
+        session_id=conversation_id
+    )
+    
+    logger.info(f"[{conversation_id}] Response generated with {len(citations)} citations (cache={rag_response.cache_hit}, latency={rag_response.latency_ms:.0f}ms)")
+    
+    # Build metadata with Atlas-Hyperion v3.0 info
+    metadata = {
+        **rag_response.metadata,
+        "cache_hit": rag_response.cache_hit,
+        "cache_level": rag_response.cache_level,
+        "planner_action": rag_response.planner_action,
+        "latency_ms": rag_response.latency_ms,
+        "verification_passed": verification_passed
+    }
     
     return QueryResponse(
         answer=rag_response.answer,
         citations=citations,
         confidence=rag_response.confidence,
         conversation_id=conversation_id,
-        metadata=rag_response.metadata
+        metadata=metadata
     )
 
 
@@ -262,19 +333,132 @@ async def submit_feedback(request: FeedbackRequest):
 async def get_stats(engine: RAGEngine = Depends(get_rag_engine)):
     """Get system statistics."""
     try:
-        vector_info = engine.vector_store.get_collection_info()
+        # Get vector store info - ensure it's JSON-safe
+        vector_info = {}
+        try:
+            raw_info = engine.vector_store.get_collection_info()
+            if isinstance(raw_info, dict):
+                vector_info = {
+                    "name": raw_info.get("name", "unknown"),
+                    "points_count": raw_info.get("points_count", 0),
+                    "status": str(raw_info.get("status", "unknown"))
+                }
+        except Exception as ve:
+            logger.warning(f"Failed to get vector store info: {ve}")
+            vector_info = {"status": "unavailable"}
+        
+        # Get cache stats safely
+        cache_stats = {}
+        try:
+            raw_cache_stats = engine.get_cache_stats()
+            if isinstance(raw_cache_stats, dict):
+                # Only include primitive values
+                for k, v in raw_cache_stats.items():
+                    if isinstance(v, (str, int, float, bool, type(None))):
+                        cache_stats[str(k)] = v
+        except Exception as ce:
+            logger.warning(f"Failed to get cache stats: {ce}")
+            cache_stats = {"status": "unavailable"}
+        
         return {
             "vector_store": vector_info,
+            "cache": cache_stats,
             "config": {
                 "model": engine.settings.vllm_model,
                 "embedding_model": engine.settings.embedding_model,
                 "top_k": engine.settings.top_k_results,
-                "threshold": engine.settings.similarity_threshold
+                "threshold": engine.settings.similarity_threshold,
+                "cache_enabled": engine.enable_cache,
+                "nli_enabled": settings.nli_enabled
             }
         }
     except Exception as e:
         logger.error(f"Error getting stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =====================================================
+# Atlas-Hyperion v3.0 Metrics Endpoints
+# =====================================================
+
+@app.get("/metrics", tags=["Metrics"])
+async def get_metrics(telemetry: Telemetry = Depends(get_telemetry_instance)):
+    """
+    Get system metrics in JSON format.
+    
+    Includes:
+    - Query counts and cache hit rates
+    - Latency percentiles (p50, p95, p99)
+    - Verification pass rates
+    - Planner action distribution
+    """
+    metrics = telemetry.get_metrics()
+    return {
+        "timestamp": metrics.timestamp,
+        "queries": {
+            "total": metrics.total_queries,
+            "cache_hits": metrics.cache_hits,
+            "cache_misses": metrics.cache_misses,
+            "cache_hit_rate": metrics.cache_hit_rate
+        },
+        "latency_ms": {
+            "avg": metrics.avg_latency_ms,
+            "p50": metrics.p50_latency_ms,
+            "p95": metrics.p95_latency_ms,
+            "p99": metrics.p99_latency_ms
+        },
+        "verification": {
+            "pass_rate": metrics.verification_pass_rate
+        },
+        "planner_actions": metrics.planner_actions,
+        "errors": metrics.error_count,
+        "uptime_seconds": telemetry.get_uptime()
+    }
+
+
+@app.get("/metrics/prometheus", tags=["Metrics"])
+async def get_prometheus_metrics(telemetry: Telemetry = Depends(get_telemetry_instance)):
+    """
+    Get metrics in Prometheus format.
+    
+    Can be scraped by Prometheus server for monitoring.
+    """
+    return PlainTextResponse(
+        content=telemetry.get_prometheus_metrics(),
+        media_type="text/plain"
+    )
+
+
+@app.get("/metrics/logs", tags=["Metrics"])
+async def get_recent_logs(
+    limit: int = 100,
+    telemetry: Telemetry = Depends(get_telemetry_instance)
+):
+    """
+    Get recent query logs for debugging.
+    
+    Args:
+        limit: Maximum number of logs to return (default: 100)
+    """
+    logs = telemetry.get_recent_logs(limit=min(limit, 1000))
+    return {
+        "count": len(logs),
+        "logs": logs
+    }
+
+
+@app.post("/cache/invalidate", tags=["Admin"])
+async def invalidate_cache(engine: RAGEngine = Depends(get_rag_engine)):
+    """
+    Invalidate all cache entries.
+    
+    Use after re-indexing documents.
+    """
+    count = engine.invalidate_cache()
+    return {
+        "status": "success",
+        "entries_invalidated": count
+    }
 
 
 if __name__ == "__main__":

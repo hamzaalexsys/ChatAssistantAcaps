@@ -95,7 +95,8 @@ class TestOutputGuardrails:
     
     @pytest.fixture
     def output_rails(self):
-        return OutputGuardrails(enabled=True, confidence_threshold=0.75)
+        # Disable NLI for unit tests - NLI requires the actual model
+        return OutputGuardrails(enabled=True, confidence_threshold=0.75, enable_nli=False)
     
     def test_valid_response_passes(self, output_rails):
         """Valid grounded responses should pass."""
@@ -150,7 +151,8 @@ class TestGuardrails:
     
     @pytest.fixture
     def guardrails(self):
-        return Guardrails(enabled=True, confidence_threshold=0.75)
+        # Disable NLI for unit tests - NLI requires the actual model
+        return Guardrails(enabled=True, confidence_threshold=0.75, enable_nli=False)
     
     def test_check_input(self, guardrails):
         """Test input checking."""

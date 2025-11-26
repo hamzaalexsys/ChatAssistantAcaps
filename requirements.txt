@@ -28,6 +28,9 @@ httpx>=0.26.0
 aiofiles>=23.2.0
 numpy>=1.26.0
 
+# Redis Cache (Atlas-Hyperion v3.0)
+redis>=5.0.0
+
 # File Watcher
 watchdog>=4.0.0
 

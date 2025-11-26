@@ -1,71 +1,78 @@
-# Atlas-RAG Project Scratchpad
+# Atlas-Hyperion v3.0 Project Scratchpad
 
 ## Task Overview
-Building a RAG chatbot system with Zero Hallucination policy for ACAPS internal use.
+Building a **Cache-Reason-Verify** RAG system with Zero Hallucination policy for ACAPS internal use.
 
-## Architecture Components
+## Architecture Components (v3.0)
 1. **Inference Engine (vLLM)** - Qwen 2.5-7B-Instruct
-2. **Knowledge Store (Qdrant)** - Vector DB with 1024 dimensions
-3. **Backend API (FastAPI + LlamaIndex)** - Orchestration layer
-4. **Security (NeMo Guardrails)** - Input/Output filtering
-5. **Data Pipeline** - Markdown parsing & embedding
-6. **Frontend UI** - Chat interface
+2. **Knowledge Store (Qdrant)** - Vector DB with graph edges
+3. **Semantic Cache (Redis)** - L1/L2/L3 multi-level caching
+4. **Agentic Planner** - Self-RAG style retrieval decisions
+5. **3-Tier Guardrails** - Pattern + Suspicion + NLI verification
+6. **Contextual Crystallization** - Chunk enrichment during ingestion
+7. **Graph-Vector Hybrid** - Multi-hop retrieval
+8. **Telemetry** - Metrics and evaluation plane
 
-## Progress Tracking
-[X] Phase 1: Project Structure Setup
-[X] Phase 2: Data Pipeline (ETL) - Parser, Embedder, VectorStore, Pipeline
-[X] Phase 3: Vector DB Setup (Qdrant) - Config and client
-[X] Phase 4: Inference Engine (vLLM) - Docker config
-[X] Phase 5: Guardrails - Input/Output validation
-[X] Phase 6: Backend API - FastAPI + RAG Engine
-[X] Phase 7: Frontend UI - React + TypeScript + Tailwind
-[X] Phase 8: Docker Compose & Integration
+## Progress Tracking - Atlas-Hyperion v3.0
+[X] Phase 1: Infrastructure Setup - Redis Stack + dependencies
+[X] Phase 2: Semantic Cache Layer - L1/L2/L3 caching
+[X] Phase 3: Contextual Crystallization - Chunk enrichment
+[X] Phase 4: Graph Extractor - Edge extraction
+[X] Phase 5: Update Ingestion Pipeline - Crystallizer + graph
+[X] Phase 6: Graph Search - Multi-hop retrieval
+[X] Phase 7: Agentic Planner - Self-RAG style
+[X] Phase 8: NLI Verifier - Neural entailment
+[X] Phase 9: Upgrade Guardrails - 3-tier verification
+[X] Phase 10: Update Engine - Cache + planner integration
+[X] Phase 11: Telemetry - Metrics + evaluation
+[X] Phase 12: Tests - Comprehensive test suite
 
-## Test Results
-- **Data Ingestion Tests**: 26/26 PASSED ✅
-- **Guardrails Tests**: 17/17 PASSED ✅
-- **Backend API Tests**: 18/18 PASSED ✅
-- **TOTAL: 61/61 PASSED** ✅
+## New Files Created (v3.0)
+- `backend_api/app/cache.py` - Semantic cache (L1/L2/L3)
+- `backend_api/app/planner.py` - Agentic planner
+- `backend_api/app/telemetry.py` - Metrics and logging
+- `backend_api/app/guardrails/nli_verifier.py` - NLI verification
+- `data_ingestion/contextualizer.py` - Chunk crystallization
+- `data_ingestion/graph_extractor.py` - Edge extraction
+- `tests/test_hyperion.py` - v3.0 component tests
 
-## Key Technical Decisions
-- Embedding Model: BAAI/bge-m3 (1024 dimensions)
-- Re-ranker: BAAI/bge-reranker-v2-m3
-- LLM: Qwen/Qwen2.5-7B-Instruct
-- Temperature: 0 (no creativity for accuracy)
-- Similarity threshold: 0.75 (below = "cannot find")
+## Modified Files (v3.0)
+- `docker-compose.yml` - Added Redis Stack
+- `requirements.txt` - Added redis package
+- `backend_api/app/config.py` - Cache + NLI settings
+- `backend_api/app/engine.py` - Cache + planner integration
+- `backend_api/app/main.py` - Metrics endpoints
+- `backend_api/app/guardrails/guardrails.py` - 3-tier verification
+- `data_ingestion/parser.py` - edges + crystallized_text fields
+- `data_ingestion/pipeline.py` - Contextualizer + graph steps
+- `data_ingestion/vector_store.py` - graph_search method
+- `env.example` - Cache + NLI configuration
 
-## Files Created
-- `data_ingestion/` - Parser, embedder, vector_store, pipeline, config
-- `backend_api/app/` - Main, engine, models, config, guardrails
-- `frontend_ui/` - React TypeScript application
-- `tests/` - Comprehensive test suite
-- `docker-compose.yml` - Full orchestration
-- `requirements.txt` - Python dependencies
+## Key Technical Decisions (v3.0)
+- **Semantic Cache**: Redis Stack with VSS for similarity matching
+- **Cache Threshold**: 0.95 similarity for L1 hits
+- **NLI Model**: cross-encoder/nli-deberta-v3-small
+- **Suspicion Threshold**: 0.5 for uncertainty patterns
+- **Graph Depth**: 2 hops for multi-hop queries
+- **Planner**: Pattern-based query classification
 
-## Lessons Learned
-- Use BAAI/bge-m3 for multilingual embeddings
-- Temperature 0 reduces hallucinations
-- Mock components are essential for testing without external dependencies
-- Cosine similarity can be negative for random vectors
-- PowerShell doesn't support && operator
-
-## Next Steps (Production)
-1. Copy `env.example` to `.env` and configure
-2. Run `docker-compose up -d` to start all services
-3. Ingest documents using the pipeline
-4. Access UI at http://localhost:3000
+## API Endpoints (v3.0)
+- `GET /metrics` - JSON metrics
+- `GET /metrics/prometheus` - Prometheus format
+- `GET /metrics/logs` - Recent query logs
+- `POST /cache/invalidate` - Clear all caches
 
 ## Commands
 ```bash
-# Run tests
+# Run all tests including v3.0
 python -m pytest tests/ -v
 
-# Run backend (development)
-python -m uvicorn backend_api.app.main:app --reload --port 8080
+# Run only Hyperion tests
+python -m pytest tests/test_hyperion.py -v
 
-# Run frontend (development)
-cd frontend_ui && npm run dev
-
-# Start full stack with Docker
+# Start full stack with Redis
 docker-compose up -d
+
+# Invalidate cache after re-indexing
+curl -X POST http://localhost:8080/cache/invalidate
 ```

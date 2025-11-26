@@ -152,7 +152,16 @@ class TestAPIEndpoints:
                 top_k_results=5,
                 max_context_length=8192,
                 temperature=0.0,
-                max_tokens=1024
+                max_tokens=1024,
+                llm_fallback_enabled=True,
+                # Atlas-Hyperion v3.0 settings
+                redis_url="redis://localhost:6379",
+                cache_enabled=True,
+                cache_ttl=3600,
+                cache_similarity_threshold=0.95,
+                nli_model="cross-encoder/nli-deberta-v3-small",
+                nli_enabled=False,  # Disable for tests
+                nli_entailment_threshold=0.7
             )
             
             from backend_api.app.main import app
@@ -233,7 +242,8 @@ class TestConfiguration:
         settings = Settings()
         assert settings.app_name == "Atlas-RAG API"
         assert settings.temperature == 0.0
-        assert settings.similarity_threshold == 0.75
+        # Note: similarity_threshold was updated from 0.75 to 0.40 for better BGE-M3 results
+        assert settings.similarity_threshold == 0.40
     
     def test_settings_cached(self):
         from backend_api.app.config import get_settings

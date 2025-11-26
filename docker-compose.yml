@@ -29,41 +29,41 @@ services:
       - atlas-network
 
   # ===========================================
-  # 2. Inference Engine - vLLM
+  # 2. Inference Engine - vLLM (DISABLED)
   # ===========================================
-  vllm:
-    image: vllm/vllm-openai:latest
-    container_name: atlas-vllm
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
-    volumes:
-      - model_cache:/root/.cache/huggingface
-    environment:
-      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
-    command: >
-      --model Qwen/Qwen2.5-7B-Instruct
-      --api-key ${VLLM_API_KEY:-secret}
-      --gpu-memory-utilization 0.85
-      --max-model-len 8192
-      --dtype float16
-      --host 0.0.0.0
-      --port 8000
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 60s
-      timeout: 30s
-      retries: 3
-      start_period: 120s
-    networks:
-      - atlas-network
+  # vllm:
+  #   image: vllm/vllm-openai:latest
+  #   container_name: atlas-vllm
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8000:8000"
+  #   volumes:
+  #     - model_cache:/root/.cache/huggingface
+  #   environment:
+  #     - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
+  #   command: >
+  #     --model Qwen/Qwen2.5-7B-Instruct
+  #     --api-key ${VLLM_API_KEY:-secret}
+  #     --gpu-memory-utilization 0.85
+  #     --max-model-len 8192
+  #     --dtype float16
+  #     --host 0.0.0.0
+  #     --port 8000
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+  #     interval: 60s
+  #     timeout: 30s
+  #     retries: 3
+  #     start_period: 120s
+  #   networks:
+  #     - atlas-network
 
   # ===========================================
   # 3. Backend API - FastAPI
@@ -77,9 +77,9 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - VLLM_URL=http://vllm:8000/v1
-      - VLLM_API_KEY=${VLLM_API_KEY:-secret}
-      - VLLM_MODEL=Qwen/Qwen2.5-7B-Instruct
+      - VLLM_URL=http://host.docker.internal:11434/v1
+      - VLLM_API_KEY=ollama
+      - VLLM_MODEL=qwen2.5:7b
       - QDRANT_URL=http://qdrant:6333
       - QDRANT_COLLECTION=atlas_knowledge
       - EMBEDDING_MODEL=BAAI/bge-m3
@@ -89,10 +89,17 @@ services:
       - ENABLE_GUARDRAILS=true
       - LOG_LEVEL=INFO
       - DEBUG=false
+      # Redis Cache Configuration
+      - REDIS_URL=redis://redis:6379
+      - CACHE_ENABLED=true
+      - CACHE_TTL=3600
+      - CACHE_SIMILARITY_THRESHOLD=0.95
     volumes:
       - ./data_ingestion:/app/data_ingestion:ro
     depends_on:
       qdrant:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -125,6 +132,29 @@ services:
     networks:
       - atlas-network
 
+  # ===========================================
+  # 5. Redis Stack - Semantic Cache Layer
+  # ===========================================
+  redis:
+    image: redis/redis-stack:latest
+    container_name: atlas-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"   # Redis
+      - "8001:8001"   # RedisInsight UI
+    volumes:
+      - redis_data:/data
+    environment:
+      - REDIS_ARGS=--save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - atlas-network
+
 # ===========================================
 # Networks
 # ===========================================
@@ -139,6 +169,8 @@ networks:
 volumes:
   qdrant_data:
     name: atlas-qdrant-data
-  model_cache:
-    name: atlas-model-cache
+  # model_cache:
+  #   name: atlas-model-cache
+  redis_data:
+    name: atlas-redis-data
 

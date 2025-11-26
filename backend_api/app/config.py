@@ -56,6 +56,17 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = "*"
     
+    # Redis Cache Configuration (Atlas-Hyperion v3.0)
+    redis_url: str = "redis://localhost:6379"
+    cache_enabled: bool = True
+    cache_ttl: int = 3600  # 1 hour default TTL
+    cache_similarity_threshold: float = 0.95  # Semantic cache hit threshold
+    
+    # NLI Verifier Configuration
+    nli_model: str = "cross-encoder/nli-deberta-v3-small"
+    nli_enabled: bool = True
+    nli_entailment_threshold: float = 0.7  # Minimum entailment score
+    
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

@@ -1,6 +1,7 @@
 """
-Main Data Ingestion Pipeline for Atlas-RAG
-Orchestrates parsing, embedding, and upserting to Qdrant.
+Main Data Ingestion Pipeline for Atlas-Hyperion v3.0
+Orchestrates parsing, contextual crystallization, graph extraction,
+embedding, and upserting to Qdrant.
 """
 import os
 import logging
@@ -12,6 +13,8 @@ from .config import get_config, IngestionConfig
 from .parser import MarkdownParser, DocumentChunk
 from .embedder import EmbeddingGenerator, get_embedding_generator
 from .vector_store import VectorStore
+from .contextualizer import get_contextualizer, SimpleContextualizer
+from .graph_extractor import GraphExtractor, get_graph_extractor
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +26,9 @@ class IngestionResult:
     chunks_created: int
     chunks_upserted: int
     errors: List[str]
+    # Atlas-Hyperion v3.0 stats
+    chunks_crystallized: int = 0
+    edges_extracted: int = 0
     
     @property
     def success(self) -> bool:
@@ -31,14 +37,18 @@ class IngestionResult:
 
 class IngestionPipeline:
     """
-    Main ingestion pipeline for Atlas-RAG.
-    Processes Markdown files, generates embeddings, and stores in Qdrant.
+    Main ingestion pipeline for Atlas-Hyperion v3.0.
+    Processes Markdown files with contextual crystallization,
+    graph extraction, embedding, and storage in Qdrant.
     """
     
     def __init__(
         self,
         config: Optional[IngestionConfig] = None,
-        use_mock: bool = False
+        use_mock: bool = False,
+        enable_crystallization: bool = True,
+        enable_graph_extraction: bool = True,
+        use_simple_contextualizer: bool = True  # Use simple mode by default (no LLM)
     ):
         """
         Initialize the ingestion pipeline.
@@ -46,12 +56,26 @@ class IngestionPipeline:
         Args:
             config: Configuration object (uses default if None)
             use_mock: Use mock components for testing
+            enable_crystallization: Enable contextual crystallization
+            enable_graph_extraction: Enable graph edge extraction
+            use_simple_contextualizer: Use simple contextualizer (no LLM required)
         """
         self.config = config or get_config()
         self.use_mock = use_mock
+        self.enable_crystallization = enable_crystallization
+        self.enable_graph_extraction = enable_graph_extraction
         
         # Initialize components
         self.parser = MarkdownParser()
+        
+        # Initialize contextualizer (Atlas-Hyperion v3.0)
+        self.contextualizer = get_contextualizer(
+            use_mock=use_mock,
+            use_simple=use_simple_contextualizer
+        )
+        
+        # Initialize graph extractor (Atlas-Hyperion v3.0)
+        self.graph_extractor = get_graph_extractor()
         
         if use_mock:
             from .embedder import MockEmbeddingGenerator
@@ -72,7 +96,7 @@ class IngestionPipeline:
                 embedding_dimension=self.config.embedding_dimension
             )
         
-        logger.info(f"IngestionPipeline initialized (mock={use_mock})")
+        logger.info(f"IngestionPipeline initialized (mock={use_mock}, crystallization={enable_crystallization}, graph={enable_graph_extraction})")
     
     def run(
         self,
@@ -170,32 +194,92 @@ class IngestionPipeline:
         
         logger.info(f"Created {len(chunks)} chunks from {files_processed} files")
         
-        # Step 3: Generate embeddings
+        # Step 3: Contextual Crystallization (Atlas-Hyperion v3.0)
+        chunks_crystallized = 0
+        if self.enable_crystallization:
+            try:
+                logger.info("Crystallizing chunks with contextual enrichment...")
+                # Group chunks by file for document-level context
+                chunks_by_file = {}
+                for chunk in chunks:
+                    if chunk.file_name not in chunks_by_file:
+                        chunks_by_file[chunk.file_name] = []
+                    chunks_by_file[chunk.file_name].append(chunk)
+                
+                for file_name, file_chunks in chunks_by_file.items():
+                    # Get document title from first chunk's metadata or file name
+                    doc_title = file_name.replace('.md', '').replace('_', ' ').title()
+                    
+                    for chunk in file_chunks:
+                        try:
+                            crystallized = self.contextualizer.crystallize(
+                                chunk_text=chunk.text,
+                                doc_title=doc_title,
+                                header_path=chunk.header_path,
+                                generate_summary=True
+                            )
+                            chunk.crystallized_text = crystallized.crystallized_text
+                            chunk.summary = crystallized.summary
+                            chunks_crystallized += 1
+                        except Exception as e:
+                            logger.warning(f"Crystallization failed for chunk: {e}")
+                            chunk.crystallized_text = chunk.text
+                            chunk.summary = ""
+                
+                logger.info(f"Crystallized {chunks_crystallized} chunks")
+            except Exception as e:
+                logger.error(f"Crystallization step failed: {e}")
+                errors.append(f"Crystallization error: {e}")
+        
+        # Step 4: Graph Edge Extraction (Atlas-Hyperion v3.0)
+        total_edges = 0
+        if self.enable_graph_extraction:
+            try:
+                logger.info("Extracting graph edges for multi-hop retrieval...")
+                for chunk in chunks:
+                    edges = self.graph_extractor.extract_edges_simple(chunk.text)
+                    chunk.edges = edges
+                    total_edges += len(edges)
+                
+                logger.info(f"Extracted {total_edges} edges from {len(chunks)} chunks")
+            except Exception as e:
+                logger.error(f"Graph extraction failed: {e}")
+                errors.append(f"Graph extraction error: {e}")
+        
+        # Step 5: Generate embeddings
         try:
-            # Include header path in embedded text for better retrieval of article titles like "Article 5"
-            texts = [f"{chunk.header_path}\n{chunk.text}" for chunk in chunks]
+            # Use crystallized text if available, otherwise use header_path + text
+            texts = []
+            for chunk in chunks:
+                if chunk.crystallized_text:
+                    texts.append(chunk.crystallized_text)
+                else:
+                    texts.append(f"{chunk.header_path}\n{chunk.text}")
+            
             logger.info(f"Generating embeddings for {len(texts)} chunks...")
             embedding_results = self.embedder.embed_texts(texts, show_progress=True)
             embeddings = [r.embedding for r in embedding_results]
         except Exception as e:
             logger.error(f"Embedding generation failed: {e}")
             errors.append(f"Embedding error: {e}")
-            return IngestionResult(files_processed, len(chunks), 0, errors)
+            return IngestionResult(files_processed, len(chunks), 0, errors, chunks_crystallized, total_edges)
         
-        # Step 4: Upsert to vector store
+        # Step 6: Upsert to vector store
         try:
             upserted = self.vector_store.upsert_chunks(chunks, embeddings)
             logger.info(f"Upserted {upserted} chunks to vector store")
         except Exception as e:
             logger.error(f"Upsert failed: {e}")
             errors.append(f"Upsert error: {e}")
-            return IngestionResult(files_processed, len(chunks), 0, errors)
+            return IngestionResult(files_processed, len(chunks), 0, errors, chunks_crystallized, total_edges)
         
         return IngestionResult(
             files_processed=files_processed,
             chunks_created=len(chunks),
             chunks_upserted=upserted,
-            errors=errors
+            errors=errors,
+            chunks_crystallized=chunks_crystallized,
+            edges_extracted=total_edges
         )
     
     def process_single_file(self, file_path: str) -> IngestionResult:
@@ -237,7 +321,7 @@ class IngestionPipeline:
 def main():
     """CLI entry point for the ingestion pipeline."""
     parser = argparse.ArgumentParser(
-        description="Atlas-RAG Data Ingestion Pipeline"
+        description="Atlas-Hyperion v3.0 Data Ingestion Pipeline"
     )
     parser.add_argument(
         "--source-dir",
@@ -265,6 +349,16 @@ def main():
         help="Show pipeline status"
     )
     parser.add_argument(
+        "--no-crystallization",
+        action="store_true",
+        help="Disable contextual crystallization"
+    )
+    parser.add_argument(
+        "--no-graph",
+        action="store_true",
+        help="Disable graph edge extraction"
+    )
+    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="Verbose output"
@@ -280,7 +374,11 @@ def main():
     )
     
     # Initialize pipeline
-    pipeline = IngestionPipeline(use_mock=args.mock)
+    pipeline = IngestionPipeline(
+        use_mock=args.mock,
+        enable_crystallization=not args.no_crystallization,
+        enable_graph_extraction=not args.no_graph
+    )
     
     if args.status:
         import json
@@ -297,12 +395,14 @@ def main():
     
     # Print results
     print("\n" + "=" * 50)
-    print("INGESTION COMPLETE")
+    print("ATLAS-HYPERION v3.0 INGESTION COMPLETE")
     print("=" * 50)
-    print(f"Files processed:  {result.files_processed}")
-    print(f"Chunks created:   {result.chunks_created}")
-    print(f"Chunks upserted:  {result.chunks_upserted}")
-    print(f"Success:          {result.success}")
+    print(f"Files processed:      {result.files_processed}")
+    print(f"Chunks created:       {result.chunks_created}")
+    print(f"Chunks crystallized:  {result.chunks_crystallized}")
+    print(f"Edges extracted:      {result.edges_extracted}")
+    print(f"Chunks upserted:      {result.chunks_upserted}")
+    print(f"Success:              {result.success}")
     
     if result.errors:
         print("\nErrors:")

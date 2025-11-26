@@ -355,6 +355,141 @@ class VectorStore:
         
         return filtered[:top_k]
     
+    def graph_search(
+        self,
+        query_embedding: List[float],
+        query_text: str = "",
+        top_k: int = 5,
+        depth: int = 2,
+        score_threshold: float = 0.0,
+        max_expansion: int = 10
+    ) -> List[SearchResult]:
+        """
+        Graph-enhanced search for Atlas-Hyperion v3.0.
+        
+        Combines vector search with graph traversal to pull
+        referenced articles/sections (multi-hop retrieval).
+        
+        Args:
+            query_embedding: Query embedding vector
+            query_text: Original query text
+            top_k: Number of final results to return
+            depth: Maximum graph traversal depth
+            score_threshold: Minimum score threshold
+            max_expansion: Maximum nodes to expand per hop
+            
+        Returns:
+            List of SearchResult objects with graph-expanded context
+        """
+        # Step 1: Initial vector search
+        initial_results = self.hybrid_search(
+            query_embedding=query_embedding,
+            query_text=query_text,
+            top_k=top_k * 2,
+            score_threshold=score_threshold
+        )
+        
+        if not initial_results:
+            return []
+        
+        # Step 2: Graph expansion
+        result_map = {r.id: r for r in initial_results}
+        visited = set(result_map.keys())
+        frontier = list(initial_results)
+        
+        for hop in range(depth):
+            if not frontier:
+                break
+            
+            # Collect edges from frontier nodes
+            edges_to_expand = []
+            for result in frontier[:max_expansion]:
+                # Get edges from metadata
+                edges = result.metadata.get("edges", [])
+                if isinstance(edges, list):
+                    edges_to_expand.extend(edges)
+            
+            if not edges_to_expand:
+                break
+            
+            # Find nodes matching the edge references
+            new_frontier = []
+            for edge_ref in set(edges_to_expand):
+                if not edge_ref:
+                    continue
+                
+                # Search for the referenced node
+                try:
+                    edge_results = self.search_by_keyword(
+                        keyword=edge_ref,
+                        field="header_path",
+                        top_k=3
+                    )
+                    
+                    for edge_result in edge_results:
+                        if edge_result.id not in visited:
+                            # Apply decay to graph-expanded results
+                            edge_result.score *= (0.8 ** (hop + 1))
+                            result_map[edge_result.id] = edge_result
+                            new_frontier.append(edge_result)
+                            visited.add(edge_result.id)
+                            
+                except Exception as e:
+                    logger.debug(f"Edge expansion failed for '{edge_ref}': {e}")
+            
+            frontier = new_frontier
+            logger.debug(f"Graph hop {hop + 1}: expanded {len(new_frontier)} nodes")
+        
+        # Step 3: Re-rank and return
+        all_results = sorted(result_map.values(), key=lambda x: x.score, reverse=True)
+        
+        logger.info(f"Graph search: {len(initial_results)} initial -> {len(all_results)} total")
+        return all_results[:top_k]
+    
+    def get_by_ids(self, ids: List[str]) -> List[SearchResult]:
+        """
+        Retrieve specific documents by their IDs.
+        
+        Args:
+            ids: List of document IDs to retrieve
+            
+        Returns:
+            List of SearchResult objects
+        """
+        if not ids:
+            return []
+        
+        try:
+            points = self.client.retrieve(
+                collection_name=self.collection_name,
+                ids=ids,
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            results = []
+            for point in points:
+                payload = point.payload or {}
+                results.append(SearchResult(
+                    id=str(point.id),
+                    score=1.0,  # Perfect score for direct retrieval
+                    text=payload.get("text", ""),
+                    file_name=payload.get("file_name", ""),
+                    header_path=payload.get("header_path", ""),
+                    url_slug=payload.get("url_slug", ""),
+                    base_url=payload.get("base_url", ""),
+                    metadata={
+                        k: v for k, v in payload.items()
+                        if k not in ["text", "file_name", "header_path", "url_slug", "base_url"]
+                    }
+                ))
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Failed to retrieve by IDs: {e}")
+            return []
+    
     def has_file(self, file_name: str) -> bool:
         """
         Check if a file exists in the vector store.
@@ -532,11 +667,82 @@ class MockVectorStore:
                 header_path=payload.get("header_path", ""),
                 url_slug=payload.get("url_slug", ""),
                 base_url=payload.get("base_url", ""),
-                metadata={}
+                metadata={
+                    k: v for k, v in payload.items()
+                    if k not in ["text", "file_name", "header_path", "url_slug", "base_url"]
+                }
             ))
         
         results.sort(key=lambda x: x.score, reverse=True)
         return results[:top_k]
+    
+    def hybrid_search(
+        self,
+        query_embedding: List[float],
+        query_text: str,
+        top_k: int = 5,
+        score_threshold: float = 0.0,
+        keyword_boost: float = 0.3
+    ) -> List[SearchResult]:
+        """Mock hybrid search."""
+        return self.search(query_embedding, top_k, score_threshold)
+    
+    def graph_search(
+        self,
+        query_embedding: List[float],
+        query_text: str = "",
+        top_k: int = 5,
+        depth: int = 2,
+        score_threshold: float = 0.0,
+        max_expansion: int = 10
+    ) -> List[SearchResult]:
+        """Mock graph search - just does regular search."""
+        results = self.search(query_embedding, top_k * 2, score_threshold)
+        
+        # Simple graph expansion from edges
+        result_map = {r.id: r for r in results}
+        
+        for result in results[:5]:
+            edges = result.metadata.get("edges", [])
+            for edge in edges:
+                # Find matching chunks
+                for point_id, point in self.points.items():
+                    payload = point["payload"]
+                    if edge in payload.get("header_path", "") and point_id not in result_map:
+                        result_map[point_id] = SearchResult(
+                            id=point_id,
+                            score=result.score * 0.8,
+                            text=payload.get("text", ""),
+                            file_name=payload.get("file_name", ""),
+                            header_path=payload.get("header_path", ""),
+                            url_slug=payload.get("url_slug", ""),
+                            base_url=payload.get("base_url", ""),
+                            metadata={
+                                k: v for k, v in payload.items()
+                                if k not in ["text", "file_name", "header_path", "url_slug", "base_url"]
+                            }
+                        )
+        
+        all_results = sorted(result_map.values(), key=lambda x: x.score, reverse=True)
+        return all_results[:top_k]
+    
+    def get_by_ids(self, ids: List[str]) -> List[SearchResult]:
+        """Get documents by IDs."""
+        results = []
+        for point_id in ids:
+            if point_id in self.points:
+                payload = self.points[point_id]["payload"]
+                results.append(SearchResult(
+                    id=point_id,
+                    score=1.0,
+                    text=payload.get("text", ""),
+                    file_name=payload.get("file_name", ""),
+                    header_path=payload.get("header_path", ""),
+                    url_slug=payload.get("url_slug", ""),
+                    base_url=payload.get("base_url", ""),
+                    metadata={}
+                ))
+        return results
     
     def has_file(self, file_name: str) -> bool:
         """Check if a file exists in the mock store."""

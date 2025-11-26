@@ -6,7 +6,7 @@ import os
 import re
 import logging
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
 from datetime import datetime
 
 import frontmatter
@@ -26,6 +26,11 @@ class DocumentChunk:
     last_updated: str
     chunk_index: int
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # Atlas-Hyperion v3.0: Contextual Crystallization fields
+    crystallized_text: str = ""  # Context-enriched version of text
+    summary: str = ""  # Ultra-short key-fact summary
+    # Atlas-Hyperion v3.0: Graph fields for multi-hop retrieval
+    edges: List[str] = field(default_factory=list)  # References to other chunks
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for storage."""
@@ -37,6 +42,9 @@ class DocumentChunk:
             "base_url": self.base_url,
             "last_updated": self.last_updated,
             "chunk_index": self.chunk_index,
+            "crystallized_text": self.crystallized_text,
+            "summary": self.summary,
+            "edges": self.edges,
             **self.metadata
         }
 
