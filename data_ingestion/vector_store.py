@@ -183,23 +183,18 @@ class VectorStore:
                 )
             query_filter = Filter(must=must_conditions)
         
-        # Use query_points with NearestQuery for newer Qdrant client API
-        from qdrant_client.http.models import NearestQuery
-        
-        # Create a NearestQuery for vector similarity search
-        nearest_query = NearestQuery(nearest=query_embedding)
-        
-        # Use query_points with the nearest query
-        response = self.client.query_points(
+        # Use search method for vector similarity search
+        search_results = self.client.search(
             collection_name=self.collection_name,
-            query=nearest_query,  # Pass NearestQuery directly
+            query_vector=query_embedding,
             limit=top_k,
             score_threshold=score_threshold,
             with_payload=True,
             query_filter=query_filter
         )
         
-        results = response.points
+        # search() returns a list of ScoredPoint objects directly
+        results = search_results
         
         search_results = []
         for result in results:

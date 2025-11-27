@@ -21,7 +21,7 @@ interface Message {
 }
 
 // API Service
-const API_BASE = '/api'
+const API_BASE = 'http://localhost:8080'
 
 async function sendQuery(question: string, conversationId?: string): Promise<{
   answer: string

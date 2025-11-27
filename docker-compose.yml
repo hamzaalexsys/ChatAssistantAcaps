@@ -84,7 +84,7 @@ services:
       - QDRANT_COLLECTION=atlas_knowledge
       - EMBEDDING_MODEL=BAAI/bge-m3
       - EMBEDDING_DIMENSION=1024
-      - SIMILARITY_THRESHOLD=0.75
+      - SIMILARITY_THRESHOLD=0.3
       - TOP_K_RESULTS=5
       - ENABLE_GUARDRAILS=true
       - LOG_LEVEL=INFO
