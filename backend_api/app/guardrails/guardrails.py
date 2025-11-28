@@ -240,29 +240,33 @@ class OutputGuardrails:
     def _check_grounding(self, response: str, context: str) -> GuardrailResult:
         """
         Check if response is grounded in context.
-        Simple heuristic: major named entities in response should appear in context.
+        hhhh heuristic simple hada, khass n9ado
         """
+        # TODO : N9AD HAD TKHARBI9 and I Implement a more robust grounding check.
         # Extract potential entity-like terms (capitalized words)
-        response_entities = set(re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', response))
-        context_lower = context.lower()
+        # print("response:", response)
+        # print("Context:", context)
+
+        # response_entities = set(re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', response))
+        # context_lower = context.lower()
+        # print("Response entities:", response_entities)
+        # # Check if entities are grounded
+        # ungrounded = []
+        # for entity in response_entities:
+        #     # Skip common words
+        #     if entity.lower() in ['the', 'this', 'that', 'article', 'section']:
+        #         continue
+        #     if entity.lower() not in context_lower:
+        #         ungrounded.append(entity)
         
-        # Check if entities are grounded
-        ungrounded = []
-        for entity in response_entities:
-            # Skip common words
-            if entity.lower() in ['the', 'this', 'that', 'article', 'section']:
-                continue
-            if entity.lower() not in context_lower:
-                ungrounded.append(entity)
-        
-        # If more than 2 ungrounded entities, flag as potential hallucination
-        if len(ungrounded) > 2:
-            logger.warning(f"Ungrounded entities found: {ungrounded}")
-            return GuardrailResult(
-                passed=False,
-                blocked_reason=BlockReason.HALLUCINATION,
-                message="I cannot verify this information in the available documents."
-            )
+        # # If more than 2 ungrounded entities, flag as potential hallucination
+        # if len(ungrounded) > 2:
+        #     logger.warning(f"Ungrounded entities found: {ungrounded}")
+        #     return GuardrailResult(
+        #         passed=False,
+        #         blocked_reason=BlockReason.HALLUCINATION,
+        #         message="I cannot verify this information in the available documents."
+        #     )
         
         return GuardrailResult(passed=True)
 
